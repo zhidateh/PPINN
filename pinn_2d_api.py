@@ -232,7 +232,6 @@ class PINN_2D:
         
         residual_5       =  P_pred - (1 -1/gamma)*rho_pred*(Et_pred - 0.5*u_pred**2 - 0.5*v_pred**2) 
         
-        self.printt     = tf.reduce_mean((rho_pred * Et_pred + P_pred)*v_pred/y_pred)
 
         e_1     = tf.reduce_mean(tf.square(residual_1))
         e_2     = tf.reduce_mean(tf.square(residual_2))
@@ -298,7 +297,6 @@ class PINN_2D:
                         print("E_5: %.3f \tE_E: %.3f "%(e_5,e_Et))
                         print("Ground truth Error: %.3f" %(sse_loss_value))     
                         print("PINN Error        : %.3f\n" %(pinn_loss_value))     
-                        print("%.3f", self.sess.run([self.printt],tf_dict))
 
                         self.saver.save(self.sess,self.ckpt_name,global_step = nSampling)
                         self.pinn_loss_vector.append(pinn_loss_value)
