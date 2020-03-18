@@ -227,10 +227,13 @@ class PINN_2D:
         residual_4      = tf.gradients(rho_pred   *Et_pred    *u_pred , x_pred,unconnected_gradients='zero')[0]  \
                         + tf.gradients(rho_pred   *Et_pred    *v_pred , y_pred,unconnected_gradients='zero')[0] \
                         + tf.gradients(P_pred     *u_pred     , x_pred,unconnected_gradients='zero')[0] \
-                        + tf.gradients(P_pred     *v_pred     , y_pred,unconnected_gradients='zero')[0]
+                        + tf.gradients(P_pred     *v_pred     , y_pred,unconnected_gradients='zero')[0] \
+                        + (rho_pred * Et_pred + P_pred)*v_pred/y_pred
         
         residual_5       =  P_pred - (1 -1/gamma)*rho_pred*(Et_pred - 0.5*u_pred**2 - 0.5*v_pred**2) 
         
+        self.printt     = tf.reduce_mean((rho_pred * Et_pred + P_pred)*v_pred/y_pred)
+
         e_1     = tf.reduce_mean(tf.square(residual_1))
         e_2     = tf.reduce_mean(tf.square(residual_2))
         e_3     = tf.reduce_mean(tf.square(residual_3))
@@ -258,7 +261,7 @@ class PINN_2D:
             for nEpoch in range(self.num_epoch):
 
                 for nIt in range( int(1.0/self.batch_ratio)):
-                    batch_size = (x_SSE_sample.shape[0] * self.batch_ratio)
+                    batch_size = int(x_SSE_sample.shape[0] * self.batch_ratio)
 
                     tf_dict = { self.P_back_SSE_tf  : P_back_SSE_sample[nIt*batch_size: (nIt+1)*batch_size,:],
                                 self.x_SSE_tf       : x_SSE_sample[nIt*batch_size: (nIt+1)*batch_size,:],
@@ -295,6 +298,7 @@ class PINN_2D:
                         print("E_5: %.3f \tE_E: %.3f "%(e_5,e_Et))
                         print("Ground truth Error: %.3f" %(sse_loss_value))     
                         print("PINN Error        : %.3f\n" %(pinn_loss_value))     
+                        print("%.3f", self.sess.run([self.printt],tf_dict))
 
                         self.saver.save(self.sess,self.ckpt_name,global_step = nSampling)
                         self.pinn_loss_vector.append(pinn_loss_value)
@@ -425,7 +429,7 @@ class PINN_2D:
             w = np.random.choice(self.P_w.shape[1], size= int(math.ceil(self.bc_ratio*self.x_w.shape[1])) , replace=False)  #10% x 211
             i = np.random.choice(self.P_i.shape[1], size= int(math.ceil(self.bc_ratio*self.x_i.shape[1])) , replace=False)  #10% x 39
             o = np.random.choice(self.P_o.shape[1], size= int(math.ceil(self.bc_ratio*self.x_o.shape[1])) , replace=False)  #10% x 39
-            c = np.random.choice(self.P_c.shape[1], size= 0*int(math.ceil(self.bc_ratio*self.x_c.shape[1])) , replace=False)  #10% x 211
+            c = np.random.choice(self.P_c.shape[1], size= int(math.ceil(self.bc_ratio*self.x_c.shape[1])) , replace=False)  #10% x 211
 
             P_back_SSE_batch    = np.hstack((P_back_SSE_batch,self.P_back_w[cases][:,w].flatten(),self.P_back_i[cases][:,i].flatten() ,self.P_back_o[cases][:,o].flatten()   ,self.P_back_c[cases][:,c].flatten())).reshape(-1,1) 
             x_SSE_batch         = np.hstack((x_SSE_batch     ,self.x_w[cases][:,w].flatten()     ,self.x_i[cases][:,i].flatten()      ,self.x_o[cases][:,o].flatten()        ,self.x_c[cases][:,c].flatten())).reshape(-1,1)
