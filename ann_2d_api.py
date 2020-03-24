@@ -6,7 +6,7 @@ import utils as utils
 from tensorflow.contrib.layers import fully_connected
 from sklearn.preprocessing import MinMaxScaler
 
-class PINN_2D:
+class PPINN_2D:
     # Initialize the class
     def __init__(self, P_back, x, y, P, rho, u, v, Et):
                     
@@ -131,36 +131,12 @@ class PINN_2D:
         #Construct tf graph
         self.actf  = tf.tanh
 
-        #Parallel PINN error
-        self.e_1, self.e_2, self.e_3, self.e_4, self.e_5  = 0,0,0,0,0
-        for case in range(self.case_size):
-            #input matrix shape: mx1
-            self.x_input            =  self.x_PINN_tf[:,case:case+1]         #slice from each case
-            self.y_input            =  self.y_PINN_tf[:,case:case+1]         #slice from each case
-            self.P_back_input       =  self.P_back_PINN_tf[:,case:case+1]    #slice from each case    
-
-            self.input_layer        = tf.concat([self.P_back_input, self.x_input, self.y_input], 1)             
-            self.hidden_layer_1     = fully_connected(self.input_layer   ,15,activation_fn= self.actf,weights_regularizer= tf.contrib.layers.l2_regularizer(0.005),scope = 'l1',reuse=bool(case))
-            self.hidden_layer_2     = fully_connected(self.hidden_layer_1,15,activation_fn= self.actf,weights_regularizer= tf.contrib.layers.l2_regularizer(0.005),scope = 'l2',reuse=bool(case))
-            self.hidden_layer_3     = fully_connected(self.hidden_layer_2,15,activation_fn= self.actf,weights_regularizer= tf.contrib.layers.l2_regularizer(0.005),scope = 'l3',reuse=bool(case))
-            self.output_pred_1      = fully_connected(self.hidden_layer_3,5,activation_fn= self.actf,weights_regularizer= tf.contrib.layers.l2_regularizer(0.005),scope = 'l6',reuse=bool(case))
-
-            #PDE loss and SSE loss
-            e_1, e_2, e_3, e_4, e_5 = self.PINNFunction(case)
-
-            #Accumulate error across all cases
-            self.e_1    += e_1
-            self.e_2    += e_2
-            self.e_3    += e_3
-            self.e_4    += e_4
-            self.e_5    += e_5
-
         #SSE error
         self.input_layer        = tf.concat([self.P_back_SSE_tf, self.x_SSE_tf, self.y_SSE_tf], 1)             
-        self.hidden_layer_1     = fully_connected(self.input_layer   ,15,activation_fn= self.actf,weights_regularizer= tf.contrib.layers.l2_regularizer(0.005),scope = 'l1',reuse=True)
-        self.hidden_layer_2     = fully_connected(self.hidden_layer_1,15,activation_fn= self.actf,weights_regularizer= tf.contrib.layers.l2_regularizer(0.005),scope = 'l2',reuse=True)
-        self.hidden_layer_3     = fully_connected(self.hidden_layer_2,15,activation_fn= self.actf,weights_regularizer= tf.contrib.layers.l2_regularizer(0.005),scope = 'l3',reuse=True)
-        self.output_pred_2      = fully_connected(self.hidden_layer_3,5,activation_fn= self.actf,weights_regularizer= tf.contrib.layers.l2_regularizer(0.005),scope = 'l6',reuse=True)
+        self.hidden_layer_1     = fully_connected(self.input_layer   ,15,activation_fn= self.actf,weights_regularizer= tf.contrib.layers.l2_regularizer(0.005),scope = 'l1',reuse=False)
+        self.hidden_layer_2     = fully_connected(self.hidden_layer_1,15,activation_fn= self.actf,weights_regularizer= tf.contrib.layers.l2_regularizer(0.005),scope = 'l2',reuse=False)
+        self.hidden_layer_3     = fully_connected(self.hidden_layer_2,15,activation_fn= self.actf,weights_regularizer= tf.contrib.layers.l2_regularizer(0.005),scope = 'l3',reuse=False)
+        self.output_pred_2      = fully_connected(self.hidden_layer_3,5,activation_fn= self.actf,weights_regularizer= tf.contrib.layers.l2_regularizer(0.005),scope = 'l6',reuse=False)
         self.e_P                = tf.reduce_sum(tf.square(self.output_pred_2[:,0:1] - self.P_SSE_tf))
         self.e_rho              = tf.reduce_sum(tf.square(self.output_pred_2[:,1:2] - self.rho_SSE_tf))
         self.e_u                = tf.reduce_sum(tf.square(self.output_pred_2[:,2:3] - self.u_SSE_tf))
@@ -174,15 +150,8 @@ class PINN_2D:
                             1*self.e_v    +\
                             1*self.e_Et 
 
-        self.pinn_loss  =   1*self.e_1    +\
-                            1*self.e_2    +\
-                            1*self.e_3    +\
-                            1*self.e_4    +\
-                            1*self.e_5  
 
-
-        self.loss   =   self.wp*self.pinn_loss +\
-                        self.ws*self.sse_loss +\
+        self.loss   =   self.ws*self.sse_loss +\
                         0*tf.compat.v1.losses.get_regularization_loss() #Regularization to prevent overfitting
 
         self.optimizer_Adam = tf.compat.v1.train.AdamOptimizer(learning_rate=self.learning_rate)
@@ -230,7 +199,7 @@ class PINN_2D:
                         + tf.gradients(P_pred     *v_pred     , y_pred,unconnected_gradients='zero')[0] \
                         + (rho_pred * Et_pred + P_pred)*v_pred/y_pred
         
-        residual_5       =  P_pred - (1 -1/gamma)*rho_pred*(Et_pred - 0.5*u_pred**2 - 0.5*v_pred**2) 
+        residual_5       =  P_pred - rho_pred*(Et_pred - 0.5*u_pred**2 - 0.5*v_pred**2)*(gamma-1)
         
 
         e_1     = tf.reduce_mean(tf.square(residual_1))
@@ -240,11 +209,6 @@ class PINN_2D:
         e_5     = tf.reduce_mean(tf.square(residual_5))
 
         return e_1, e_2, e_3, e_4, e_5
-
-    def callback(self, loss):
-        # self.loss_vector.append(loss)
-        # self.step_vector.append(1)
-        print('Loss: %.3e' % (loss))
 
     def initGraph(self):
         init = tf.compat.v1.global_variables_initializer()
@@ -260,7 +224,7 @@ class PINN_2D:
             for nEpoch in range(self.num_epoch):
 
                 for nIt in range( int(1.0/self.batch_ratio)):
-                    batch_size = int(x_SSE_sample.shape[0] * self.batch_ratio)
+                    batch_size = (x_SSE_sample.shape[0] * self.batch_ratio)
 
                     tf_dict = { self.P_back_SSE_tf  : P_back_SSE_sample[nIt*batch_size: (nIt+1)*batch_size,:],
                                 self.x_SSE_tf       : x_SSE_sample[nIt*batch_size: (nIt+1)*batch_size,:],
@@ -283,11 +247,11 @@ class PINN_2D:
 
                         loss_value                  = self.sess.run([self.loss],tf_dict)[0]
                         sse_loss_value              = self.sess.run([self.sse_loss],tf_dict)[0]
-                        pinn_loss_value             = self.sess.run([self.pinn_loss],tf_dict)[0]
-                        e_1, e_2, e_3,e_4,e_5       = self.sess.run([self.e_1,self.e_2,self.e_3,self.e_4, self.e_5],tf_dict)
+                        pinn_loss_value             = 0
+                        e_1, e_2, e_3,e_4,e_5       = 0,0,0,0,0
                         e_P, e_rho, e_u,e_v,e_Et    = self.sess.run([self.e_P,self.e_rho,self.e_u,self.e_v,self.e_Et],tf_dict)
 
-                        print("Sampling: %d, Epoch: %d, Elapsed: %.2f min" %(nSampling, nEpoch,elapsed))
+                        print("Sampling: %d, Epoch: %d, Elapsed: %.5f min" %(nSampling, nEpoch,elapsed))
                         print("Batch size: %d, PINN Batch size: %d" %(x_SSE_sample.shape[0] * self.batch_ratio,x_PINN_sample.flatten().shape[0]*self.batch_ratio))
                         print("-----PINN-----\t-----ANN-----")
                         print("E_1: %.3f \tE_P: %.3f "%(e_1,e_P))
@@ -302,11 +266,6 @@ class PINN_2D:
                         self.pinn_loss_vector.append(pinn_loss_value)
                         self.sse_loss_vector.append(sse_loss_value)
                         self.step_vector.append(1)
-
-        # self.optimizer.minimize(self.sess,
-        #                     feed_dict = tf_dict,
-        #                     fetches = [self.loss],
-        #                     loss_callback = self.callback)
        
     def predict(self, P_back_test, x_test, y_test):
         
